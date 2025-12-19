@@ -1,0 +1,8 @@
+[submodule "hardware-integrations"]
+	path = hardware-integrations
+	url = git@github.com:EIC-Robocup-2026/hardware-integrations.git
+	branch = miniwalkie
+[submodule "robot-description"]
+	path = robot-description
+	url = git@github.com:EIC-Robocup-2026/robot-description.git
+	branch = main

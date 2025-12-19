@@ -1,0 +1,228 @@
+// filename : main.cpp.multiMotorSpeedControlTester.bak
+#include <Arduino.h>
+#include <ESP32Encoder.h>
+#include <Wire.h>
+#include "motor.h"
+#include "wheel_feedback.h"
+#include "motor_controller.h"
+
+// ********* Encoder ***********
+ESP32Encoder encoder_1;
+ESP32Encoder encoder_2;
+ESP32Encoder encoder_3;
+ESP32Encoder encoder_4;
+
+// Encoder pins
+#define ENCODER_1_PIN1 12
+#define ENCODER_1_PIN2 26
+
+#define ENCODER_2_PIN1 27
+#define ENCODER_2_PIN2 14
+
+#define ENCODER_3_PIN1 17
+#define ENCODER_3_PIN2 16
+
+#define ENCODER_4_PIN1 19
+#define ENCODER_4_PIN2 18
+
+// Create wheel feedback objects
+WheelFeedback wheel_fl(encoder_4, 1228.8);
+WheelFeedback wheel_fr(encoder_1, 1228.8);
+WheelFeedback wheel_br(encoder_2, 1228.8);
+WheelFeedback wheel_bl(encoder_3, 1228.8);
+
+// ********* Smile Drive communication *************
+#define MOTOR_SDA 21
+#define MOTOR_SCL 22
+
+// Smile Drive M1 M2 Address
+#define FIRST_I2C_ADDRESS 0x85
+#define SECOND_I2C_ADDRESS 0x86
+
+#define FRONT_MDrive_I2C_ADDRESS 0x50
+#define BACK_MDrive_I2C_ADDRESS 0x51
+
+MotorI2C FL_Motor(FRONT_MDrive_I2C_ADDRESS, FIRST_I2C_ADDRESS ); // 4 Front Left 
+MotorI2C FR_Motor(FRONT_MDrive_I2C_ADDRESS, SECOND_I2C_ADDRESS ); //1 Front Right
+MotorI2C BR_Motor(BACK_MDrive_I2C_ADDRESS, FIRST_I2C_ADDRESS ); //3  Back Left
+MotorI2C BL_Motor(BACK_MDrive_I2C_ADDRESS, SECOND_I2C_ADDRESS ); // 2 Back Right
+
+// Create motor controllers
+MotorSpeedController controller_fl(FL_Motor, wheel_fl);
+MotorSpeedController controller_fr(FR_Motor, wheel_fr);
+MotorSpeedController controller_br(BR_Motor, wheel_br);
+MotorSpeedController controller_bl(BL_Motor, wheel_bl);
+
+// Test parameters
+enum TestMode {
+    IDLE,
+    STEP_TEST,
+    SINE_TEST,
+    TRIANGLE_TEST
+};
+
+struct TestConfig {
+    TestMode mode = IDLE;
+    float amplitude = 5.0;     // rad/s
+    float frequency = 0.2;     // Hz
+    unsigned long startTime = 0;
+    unsigned long testDuration = 10000; // 10 seconds
+} testConfig;
+
+// Function to handle serial commands
+void handleSerialCommand(String cmd) {
+    cmd.trim();
+    if (cmd.length() == 0) return;
+
+    char command = cmd[0];
+    float value;
+
+    switch (command) {
+        case '1': // Step test
+            testConfig.mode = STEP_TEST;
+            testConfig.startTime = millis();
+            Serial.println("Starting step test");
+            break;
+            
+        case '2': // Sine test
+            testConfig.mode = SINE_TEST;
+            testConfig.startTime = millis();
+            Serial.println("Starting sine wave test");
+            break;
+            
+        case '3': // Triangle test
+            testConfig.mode = TRIANGLE_TEST;
+            testConfig.startTime = millis();
+            Serial.println("Starting triangle wave test");
+            break;
+            
+        case 's': // Stop test
+            testConfig.mode = IDLE;
+            controller_fl.setTargetSpeed(0);
+            controller_fr.setTargetSpeed(0);
+            controller_br.setTargetSpeed(0);
+            controller_bl.setTargetSpeed(0);
+            Serial.println("Test stopped");
+            break;
+            
+        case 'h': // Help
+            Serial.println("Test Commands:");
+            Serial.println("1 - Start step test");
+            Serial.println("2 - Start sine wave test");
+            Serial.println("3 - Start triangle wave test");
+            Serial.println("s - Stop test");
+            Serial.println("h - Show this help");
+            break;
+    }
+}
+
+void updateTestPattern() {
+    unsigned long currentTime = millis();
+    float elapsedSec = (currentTime - testConfig.startTime) / 1000.0;
+    float targetSpeed = 0;
+
+    // Check if test should end
+    if (currentTime - testConfig.startTime >= testConfig.testDuration) {
+        testConfig.mode = IDLE;
+        controller_fl.setTargetSpeed(0);
+        controller_fr.setTargetSpeed(0);
+        controller_br.setTargetSpeed(0);
+        controller_bl.setTargetSpeed(0);
+        Serial.println("Test completed");
+        return;
+    }
+
+    switch (testConfig.mode) {
+        case STEP_TEST:
+            // Alternate between positive and negative amplitude every 2 seconds
+            targetSpeed = ((int)(elapsedSec / 2) % 2) ? testConfig.amplitude : -testConfig.amplitude;
+            break;
+            
+        case SINE_TEST:
+            // Sinusoidal wave
+            targetSpeed = testConfig.amplitude * sin(2 * PI * testConfig.frequency * elapsedSec);
+            break;
+            
+        case TRIANGLE_TEST:
+            // Triangle wave
+            float period = 1.0 / testConfig.frequency;
+            float t = fmod(elapsedSec, period) / period;
+            if (t < 0.5) {
+                targetSpeed = testConfig.amplitude * (4 * t - 1);
+            } else {
+                targetSpeed = testConfig.amplitude * (3 - 4 * t);
+            }
+            break;
+    }
+
+    // Set the target speed for all motors
+    controller_fl.setTargetSpeed(targetSpeed);
+    controller_fr.setTargetSpeed(targetSpeed);
+    controller_br.setTargetSpeed(targetSpeed);
+    controller_bl.setTargetSpeed(targetSpeed);
+}
+
+void printDebugInfo() {
+    static unsigned long lastPrint = 0;
+    if (millis() - lastPrint >= 50) { // Print every 50ms
+        Serial.printf("Time:%.2f\t", (millis() - testConfig.startTime) / 1000.0);
+        Serial.printf("Target:%.2f\t", controller_fl.getTargetSpeed());
+        Serial.printf("FL:%.2f\t", wheel_fl.getAngularVelocity());
+        Serial.printf("FR:%.2f\t", wheel_fr.getAngularVelocity());
+        Serial.printf("BR:%.2f\t", wheel_br.getAngularVelocity());
+        Serial.printf("BL:%.2f\n", wheel_bl.getAngularVelocity());
+        lastPrint = millis();
+    }
+}
+
+void setup() {
+    Serial.begin(115200);
+    Wire.begin(MOTOR_SDA, MOTOR_SCL);
+
+    ESP32Encoder::useInternalWeakPullResistors = puType::up;
+
+    encoder_1.attachHalfQuad(ENCODER_1_PIN1, ENCODER_1_PIN2);
+    encoder_2.attachHalfQuad(ENCODER_2_PIN1, ENCODER_2_PIN2);
+    encoder_3.attachHalfQuad(ENCODER_3_PIN1, ENCODER_3_PIN2);
+    encoder_4.attachHalfQuad(ENCODER_4_PIN1, ENCODER_4_PIN2);
+
+    // Configure initial PID gains
+    controller_fl.setPIDGains(0.05, 70.0, 0.07);
+    controller_fl.setFeedForward(12.8311, 16.6545); 
+    controller_fr.setPIDGains(0.05, 70.0, 0.07);
+    controller_fr.setFeedForward(12.8311, 16.6545); 
+    controller_br.setPIDGains(0.05, 70.0, 0.07);
+    controller_br.setFeedForward(12.8311, 16.6545); 
+    controller_bl.setPIDGains(0.05, 70.0, 0.07);
+    controller_bl.setFeedForward(12.8311, 16.6545); 
+
+    // Set output limits
+    controller_fl.setOutputLimits(-255, 255);
+    controller_fr.setOutputLimits(-255, 255);
+    controller_br.setOutputLimits(-255, 255);
+    controller_bl.setOutputLimits(-255, 255);
+}
+
+void loop() {
+    // Handle serial commands
+    if (Serial.available()) {
+        String command = Serial.readStringUntil('\n');
+        handleSerialCommand(command);
+    }
+
+    // Update test pattern if active
+    if (testConfig.mode != IDLE) {
+        updateTestPattern();
+    }
+
+    // Update all controllers
+    controller_fl.update();
+    controller_fr.update();
+    controller_br.update();
+    controller_bl.update();
+
+    // Print debug information
+    printDebugInfo();
+
+    delay(10);
+}

@@ -1,0 +1,166 @@
+// filename: main.cpp.pidtuner.bak
+#include <Arduino.h>
+#include <ESP32Encoder.h>
+#include <Wire.h>
+#include "motor.h"
+#include "wheel_feedback.h"
+#include "motor_controller.h"
+
+// ********* Encoder ***********
+ESP32Encoder encoder_fl;
+// Encoder pins
+#define ENCODER_FL_PIN1 17
+#define ENCODER_FL_PIN2 16
+
+#define ENCODER_FR_PIN1 19
+#define ENCODER_FR_PIN2 18
+
+#define ENCODER_BR_PIN1 12
+#define ENCODER_BR_PIN2 13
+
+#define ENCODER_BL_PIN1 27
+#define ENCODER_BL_PIN2 14
+
+// Create wheel feedback object
+WheelFeedback wheel_fl(encoder_fl, 1228.8);
+
+// ********* Smile Drive communication *************
+#define MOTOR_SDA 21
+#define MOTOR_SCL 22
+
+// Smile Drive M1 M2 Address
+#define FIRST_I2C_ADDRESS 0x85
+#define FRONT_MDrive_I2C_ADDRESS 0x50
+
+MotorI2C FL_Motor(FRONT_MDrive_I2C_ADDRESS, FIRST_I2C_ADDRESS); // Front Left
+
+// Create motor controller
+MotorSpeedController controller_fl(FL_Motor, wheel_fl);
+
+// Function to parse float value from serial command
+float parseFloat(String &cmd, int &pos) {
+    while (pos < cmd.length() && (cmd[pos] == ' ' || cmd[pos] == ',')) pos++;
+    int start = pos;
+    while (pos < cmd.length() && ((cmd[pos] >= '0' && cmd[pos] <= '9') || cmd[pos] == '.' || cmd[pos] == '-')) pos++;
+    return cmd.substring(start, pos).toFloat();
+}
+
+// Function to handle serial commands
+void handleSerialCommand(String cmd) {
+    cmd.trim();
+    if (cmd.length() == 0) return;
+
+    char command = cmd[0];
+    int pos = 1;
+    float value;
+    float slope, offset;  // Moved declarations to the top
+
+    switch (command) {
+        case 's': // Set speed: s <speed>
+            value = parseFloat(cmd, pos);
+            controller_fl.setTargetSpeed(value);
+            Serial.printf("Set speed: %.2f rad/s\n", value);
+            break;
+
+        case 'p': // Set P gain: p <value>
+            value = parseFloat(cmd, pos);
+            controller_fl.setPIDGains(value, controller_fl.getKi(), controller_fl.getKd());
+            Serial.printf("Set P gain: %.2f\n", value);
+            break;
+
+        case 'i': // Set I gain: i <value>
+            value = parseFloat(cmd, pos);
+            controller_fl.setPIDGains(controller_fl.getKp(), value, controller_fl.getKd());
+            Serial.printf("Set I gain: %.2f\n", value);
+            break;
+
+        case 'd': // Set D gain: d <value>
+            value = parseFloat(cmd, pos);
+            controller_fl.setPIDGains(controller_fl.getKp(), controller_fl.getKi(), value);
+            Serial.printf("Set D gain: %.2f\n", value);
+            break;
+
+        case 'f': // Set feed-forward parameters: f <slope> <offset>
+            slope = parseFloat(cmd, pos);
+            offset = parseFloat(cmd, pos);
+            controller_fl.setFeedForward(slope, offset);
+            Serial.printf("Set feed-forward: slope=%.2f offset=%.2f\n", slope, offset);
+            break;
+
+        case 'e': // Enable/disable feed-forward: e <0|1>
+            value = parseFloat(cmd, pos);
+            controller_fl.enableFeedForward(value > 0);
+            Serial.printf("Feed-forward %s\n", value > 0 ? "enabled" : "disabled");
+            break;
+
+        case '?': // Print current parameters
+            Serial.println("Current parameters:");
+            Serial.printf("Speed (rad/s): %.2f\n", controller_fl.getTargetSpeed());
+            Serial.printf("P gain: %.2f\n", controller_fl.getKp());
+            Serial.printf("I gain: %.2f\n", controller_fl.getKi());
+            Serial.printf("D gain: %.2f\n", controller_fl.getKd());
+            Serial.printf("Feed-forward: %s\n", controller_fl.isFeedForwardEnabled() ? "enabled" : "disabled");
+            Serial.printf("FF slope: %.2f\n", controller_fl.getFFSlope());
+            Serial.printf("FF offset: %.2f\n", controller_fl.getFFOffset());
+            break;
+
+        case 'h': // Help
+            Serial.println("Commands:");
+            Serial.println("s <value> - Set speed (rad/s)");
+            Serial.println("p <value> - Set P gain");
+            Serial.println("i <value> - Set I gain");
+            Serial.println("d <value> - Set D gain");
+            Serial.println("f <slope> <offset> - Set feed-forward parameters");
+            Serial.println("e <0|1> - Disable/enable feed-forward");
+            Serial.println("? - Print current parameters");
+            Serial.println("h - Show this help");
+            break;
+    }
+}
+
+void setup() {
+    Serial.begin(115200);
+    Wire.begin(MOTOR_SDA, MOTOR_SCL);
+
+    ESP32Encoder::useInternalWeakPullResistors = puType::up;
+
+    // Setup encoder
+    encoder_fl.attachHalfQuad(ENCODER_FR_PIN1, ENCODER_FR_PIN2);
+
+    // Configure initial PID gains
+    controller_fl.setPIDGains(0.05, 70.0, 0.07);
+    controller_fl.setFeedForward(12.8311, 16.6545); 
+
+    // Set output limits
+    controller_fl.setOutputLimits(-255, 255);
+}
+
+void loop() {
+    // Handle serial commands
+    if (Serial.available()) {
+        String command = Serial.readStringUntil('\n');
+        handleSerialCommand(command);
+    }
+
+    // Update controller
+    float output = controller_fl.update();
+
+    // Print debug information every 100ms
+    static unsigned long lastPrint = 0;
+    if (millis() - lastPrint >= 20) {
+        Serial.print(">Output:");
+        Serial.println(output);
+        Serial.print(">Target:");
+        Serial.println(controller_fl.getTargetSpeed());
+        Serial.print(">Current:");
+        Serial.println(wheel_fl.getAngularVelocity());
+        Serial.print(">Error:");
+        Serial.println(controller_fl.getError());
+        Serial.print(">Integral Error:");
+        Serial.println(controller_fl.getIntError());
+        // Serial.println();
+        lastPrint = millis();
+    }
+
+    delay(10); // Update at 20Hz
+}

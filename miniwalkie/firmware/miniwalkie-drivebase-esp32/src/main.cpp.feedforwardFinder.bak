@@ -1,0 +1,209 @@
+#include <Arduino.h>
+#include <ESP32Encoder.h>
+#include <Wire.h>
+#include "motor.h"
+#include "wheel_feedback.h"
+#include "motor_controller.h"
+
+// ********* Encoder ***********
+ESP32Encoder encoder_fl;
+
+// Create wheel feedback object
+WheelFeedback wheel_fl(encoder_fl, 1228.8);
+
+// ********* Smile Drive communication *************
+#define MOTOR_SDA 21
+#define MOTOR_SCL 22
+#define FIRST_I2C_ADDRESS 0x85
+#define FRONT_MDrive_I2C_ADDRESS 0x50
+
+MotorI2C FL_Motor(FRONT_MDrive_I2C_ADDRESS, FIRST_I2C_ADDRESS);
+
+// Feed-forward calibration parameters
+const int NUM_TEST_POINTS = 10;  // Number of PWM values to test
+const int PWM_STEP = 25;         // PWM step size
+const int SETTLING_TIME = 1000;  // Time to wait for motor to reach steady state (ms)
+const int SAMPLES_PER_POINT = 50; // Number of samples to average for each point
+const int SAMPLE_DELAY = 10;     // Delay between samples (ms)
+
+enum TestState {
+    IDLE,
+    SETTLING,
+    SAMPLING,
+    COMPLETED
+};
+
+struct CalibrationPoint {
+    int pwm;
+    float velocity;
+};
+
+TestState currentState = IDLE;
+int currentPWM = 0;
+int sampleCount = 0;
+unsigned long stateStartTime = 0;
+float velocitySum = 0;
+CalibrationPoint calibrationData[NUM_TEST_POINTS];
+int dataPoints = 0;
+
+void printResults() {
+    Serial.println("\nCalibration Results:");
+    Serial.println("PWM = m * Velocity + b");
+    
+    // Calculate linear regression
+    float sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+    for (int i = 0; i < dataPoints; i++) {
+        float x = calibrationData[i].velocity;  // velocity is X
+        float y = calibrationData[i].pwm;       // PWM is Y
+        sumX += x;
+        sumY += y;
+        sumXY += x * y;
+        sumXX += x * x;
+    }
+    
+    float n = dataPoints;
+    float m = (n * sumXY - sumX * sumY) / (n * sumXX - sumX * sumX);
+    float b = (sumY - m * sumX) / n;
+    
+    Serial.print("m (slope) = ");
+    Serial.println(m, 4);
+    Serial.print("b (offset) = ");
+    Serial.println(b, 4);
+    Serial.println("\nTo convert desired velocity to PWM:");
+    Serial.println("PWM = velocity * m + b");
+    
+    // Calculate R-squared
+    float meanY = sumY / n;
+    float totalSS = 0, residualSS = 0;
+    for (int i = 0; i < dataPoints; i++) {
+        float x = calibrationData[i].velocity;
+        float y = calibrationData[i].pwm;
+        float yPred = m * x + b;
+        residualSS += (y - yPred) * (y - yPred);
+        totalSS += (y - meanY) * (y - meanY);
+    }
+    float rSquared = 1 - (residualSS / totalSS);
+    Serial.print("R-squared = ");
+    Serial.println(rSquared, 4);
+}
+
+void startCalibration() {
+    Serial.println("Starting feed-forward calibration...");
+    Serial.println("PWM,Velocity(rad/s)");
+    currentState = SETTLING;
+    currentPWM = PWM_STEP;  // Start with first PWM value
+    stateStartTime = millis();
+    dataPoints = 0;
+}
+
+void runCalibration() {
+    unsigned long currentTime = millis();
+    float currentVelocity;
+
+    switch (currentState) {
+        case SETTLING:
+            // Apply PWM and wait for settling
+            FL_Motor.run(currentPWM);
+            if (currentTime - stateStartTime >= SETTLING_TIME) {
+                currentState = SAMPLING;
+                stateStartTime = currentTime;
+                sampleCount = 0;
+                velocitySum = 0;
+            }
+            break;
+
+        case SAMPLING:
+            FL_Motor.run(currentPWM);
+            // Collect samples and average
+            if (currentTime - stateStartTime >= SAMPLE_DELAY) {
+                currentVelocity = wheel_fl.updateAngularVelocity();
+                velocitySum += currentVelocity;
+                sampleCount++;
+                stateStartTime = currentTime;
+
+                // Print raw data point
+                Serial.print("Sample ");
+                Serial.print(sampleCount);
+                Serial.print(": PWM=");
+                Serial.print(currentPWM);
+                Serial.print(" Velocity=");
+                Serial.println(currentVelocity, 3);
+
+                if (sampleCount >= SAMPLES_PER_POINT) {
+                    // Calculate average and store calibration point
+                    calibrationData[dataPoints].pwm = currentPWM;
+                    calibrationData[dataPoints].velocity = velocitySum / SAMPLES_PER_POINT;
+                    
+                    // Print averaged data point
+                    Serial.print("DATA,");
+                    Serial.print(currentPWM);
+                    Serial.print(",");
+                    Serial.println(calibrationData[dataPoints].velocity, 3);
+                    
+                    dataPoints++;
+
+                    // Move to next PWM value or finish
+                    currentPWM += PWM_STEP;
+                    if (currentPWM > 255 || dataPoints >= NUM_TEST_POINTS) {
+                        currentState = COMPLETED;
+                        FL_Motor.run(0);
+                        printResults();
+                    } else {
+                        currentState = SETTLING;
+                    }
+                    stateStartTime = currentTime;
+                }
+            }
+            break;
+
+        case COMPLETED:
+            // Do nothing, waiting for new command
+            break;
+    }
+}
+
+void handleSerialCommand(String cmd) {
+    cmd.trim();
+    if (cmd.length() == 0) return;
+
+    switch (cmd[0]) {
+        case 'c':  // Start calibration
+            startCalibration();
+            break;
+        case 's':  // Stop
+            currentState = IDLE;
+            FL_Motor.run(0);
+            Serial.println("Stopped");
+            break;
+        case 'h':  // Help
+            Serial.println("Commands:");
+            Serial.println("c - Start calibration");
+            Serial.println("s - Stop motor");
+            Serial.println("h - Show this help");
+            break;
+    }
+}
+
+void setup() {
+    Serial.begin(115200);
+    Wire.begin(MOTOR_SDA, MOTOR_SCL);
+
+    ESP32Encoder::useInternalWeakPullResistors = puType::up;
+    encoder_fl.attachHalfQuad(26, 27);
+
+    Serial.println("Feed-forward calibration system ready");
+    Serial.println("Send 'h' for help");
+}
+
+void loop() {
+    if (Serial.available()) {
+        String command = Serial.readStringUntil('\n');
+        handleSerialCommand(command);
+    }
+
+    if (currentState != IDLE) {
+        runCalibration();
+    }
+
+    delay(10);
+}
