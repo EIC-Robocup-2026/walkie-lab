@@ -1,0 +1,64 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+    <xacro:arg name="ros2_control_hardware_type" default="mock_components" />
+
+    <ros2_control name="Arm" type="system">
+        <hardware>
+            <xacro:if value="${'$(arg ros2_control_hardware_type)' == 'mock_components'}">
+                <plugin>mock_components/GenericSystem</plugin>
+            </xacro:if>
+
+            <xacro:if value="${'$(arg ros2_control_hardware_type)' == 'isaac'}">
+                <plugin>topic_based_ros2_control/TopicBasedSystem</plugin>
+                <param name="joint_commands_topic">/MyArmControl/joint_commands</param>
+                <param name="joint_states_topic">/MyArmControl/joint_states</param>
+            </xacro:if>
+            
+        </hardware>
+
+        <joint name="joint1">
+            <command_interface name="position"/>
+            <state_interface name="position">
+              <param name="initial_value">2.355</param>
+            </state_interface>
+        </joint>
+        <joint name="joint2">
+            <command_interface name="position"/>
+            <state_interface name="position">
+              <param name="initial_value">2.355</param>
+            </state_interface>
+        </joint>
+        <joint name="joint3">
+            <command_interface name="position"/>
+            <state_interface name="position">
+              <param name="initial_value">2.355</param>
+            </state_interface>
+        </joint>
+        <joint name="joint4">
+            <command_interface name="position"/>
+            <state_interface name="position">
+              <param name="initial_value">2.355</param>
+            </state_interface>
+        </joint>
+        <joint name="joint5">
+            <command_interface name="position"/>
+            <state_interface name="position">
+              <param name="initial_value">1.57</param>
+            </state_interface>
+        </joint>
+        <joint name="joint6">
+            <command_interface name="position"/>
+            <state_interface name="position">
+              <param name="initial_value">1.57</param>
+            </state_interface>
+        </joint>
+        <joint name="gripper_left_finger_joint">
+            <command_interface name="position"/>
+            <state_interface name="position">
+              <param name="initial_value">0</param>
+            </state_interface>
+        </joint>
+
+    </ros2_control>
+</robot>  

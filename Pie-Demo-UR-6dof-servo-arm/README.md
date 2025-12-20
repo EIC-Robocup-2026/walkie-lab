@@ -6,11 +6,12 @@ A complete robotic arm control system featuring inverse kinematics, real-time ke
 
 ## 🎯 Project Overview
 
-This repository contains three main components:
+This repository contains four main components:
 
 1. **IK Serial Controller (Python)** - Real-time inverse kinematics solver with keyboard control
 2. **ESP32 Firmware** - Dual-mode wireless servo controller (UART/ESP-NOW)
-3. **CAD Model** - 3D mechanical design files (STEP format)
+3. **ROS2 + MoveIt Integration** - Complete motion planning and control system with ROS2
+4. **CAD Model** - 3D mechanical design files (STEP format)
 
 ### Key Features
 
@@ -21,6 +22,8 @@ This repository contains three main components:
 - ✅ **State Persistence** - Auto-save/restore arm configuration
 - ✅ **Live 3D Visualization** - Real-time matplotlib kinematic display
 - ✅ **Configurable Servo Profiles** - Per-servo calibration and safety limits
+- ✅ **ROS2 MoveIt Integration** - Professional motion planning with trajectory optimization
+- ✅ **Topic-Based ROS2 Control** - Seamless integration between MoveIt and hardware
 
 ## 📁 Project Structure
 
@@ -55,6 +58,15 @@ Pie-Demo-UR-6dof-servo-arm/
 │       ├── src/main.cpp            # UART → ESP-NOW relay
 │       ├── platformio.ini          # Build configuration
 │       └── README.md               # Sender documentation
+│
+├── ros/                             # ROS2 + MoveIt integration
+│   ├── demo_arm_ws/                 # ROS2 workspace
+│   │   ├── my_robot_description/    # URDF/Xacro robot model with meshes
+│   │   ├── my_robot_moveit_config/  # MoveIt2 configuration (kinematics, planning)
+│   │   ├── my_robot_bringup/        # Launch files and ROS2 Control config
+│   │   ├── my_robot_commander_py/   # Python MoveIt2 API examples
+│   │   └── my_robot_interfaces/     # Custom ROS2 message definitions
+│   └── readme.md                    # ROS2 setup and usage guide
 │
 ├── cad/
 │   └── DEMO ARM EXPORT.stp         # 3D CAD model (STEP format)
@@ -219,6 +231,29 @@ python main.py
 | **←** | Roll | Rotate gripper CCW |
 | **→** | Roll | Rotate gripper CW |
 | **ESC** | Exit | Quit program |
+
+## 🤖 ROS2 + MoveIt Integration
+
+The `ros/` directory contains a complete ROS2 workspace with MoveIt2 integration for advanced motion planning and control. This provides a professional-grade robotics framework alongside the standalone Python IK controller.
+
+### Features
+
+- **MoveIt2 Motion Planning**: Industry-standard trajectory planning with collision avoidance
+- **ROS2 Control Integration**: Topic-based hardware interface for seamless robot control
+- **Python Commander API**: Programmatic control using MoveIt2 Python bindings
+- **URDF Robot Model**: Complete kinematic description with STL meshes
+- **RViz Visualization**: Real-time 3D visualization and interactive planning
+- **Dual Control Modes**: Mock components for simulation or topic-based control for real hardware
+
+### System Requirements
+
+- **OS**: Ubuntu 24.04
+- **ROS Distribution**: ROS2 Jazzy
+- **MoveIt2**: Jazzy distribution
+
+### Getting Started
+
+📖 **For complete setup instructions, usage guide, and troubleshooting, please see [`ros/readme.md`](ros/readme.md)**
 
 ## 📐 Robot Kinematics
 
