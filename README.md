@@ -20,7 +20,6 @@ When adding new experimental projects:
 
 1. Create a dedicated directory for your project
 2. Include a comprehensive README.md
-3. Document hardware requirements and dependencies
-4. Provide setup instructions and usage examples
-5. Note any issues or limitations discovered
-6. Update this main README with project information
+    - Document hardware requirements and dependencies
+    - Provide setup instructions and usage examples
+    - Note any issues or limitations discovered
