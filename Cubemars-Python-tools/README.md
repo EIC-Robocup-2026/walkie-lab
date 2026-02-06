@@ -2,6 +2,19 @@
 
 This repository contains Python tools and examples for interacting with Cubemars motors. It provides a Python API to communicate with the motors and includes demonstration scripts for various functionalities.
 
+## Installation & Setup
+
+1. **Clone the repository.**
+2. **Create and activate a virtual environment:**
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+3. **Install the Cubemars Python API in editable mode:**
+   ```bash
+   pip install -e ./Cubemars-Python-API
+   ```
+
 ## Directory Structure
 
 - `Cubemars-Python-API/`: This directory contains the core Python API for communicating with Cubemars motors. It provides the necessary classes and functions to control and read data from the motors.
